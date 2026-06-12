@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="page" content="index">
+<title>2026 世界杯 · 数据看板</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div class="app-layout">
+
+<nav class="sidebar" id="sidebar"></nav>
+
+<main class="main-content">
+  <div class="page-header">
+    <h1>2026 世界杯 · 数据看板</h1>
+    <p>小组赛阶段 · 实时更新 · AI 预测分析</p>
+  </div>
+
+  <!-- Stats Row -->
+  <div class="stats-grid" id="statsRow"></div>
+
+  <!-- Today's Matches -->
+  <div class="card" style="margin-bottom:20px">
+    <div class="card-header">
+      <span class="card-title">今日比赛</span>
+      <span class="badge badge-live" id="liveBadge" style="display:none"><span class="live-dot"></span>LIVE</span>
+    </div>
+    <div id="todayMatches"><p style="color:var(--text-muted);font-size:13px">今天没有比赛安排</p></div>
+  </div>
+
+  <!-- Recent Results + Upcoming -->
+  <div class="grid-2" style="margin-top:20px">
+    <div class="card">
+      <div class="card-header"><span class="card-title">最新赛果</span></div>
+      <div id="recentResults"></div>
+    </div>
+    <div class="card">
+      <div class="card-header"><span class="card-title">即将开赛</span></div>
+      <div id="upcomingMatches"></div>
+    </div>
+  </div>
+
+  <!-- Prediction accuracy -->
+  <div class="card" style="margin-top:20px">
+    <div class="card-header"><span class="card-title">预测准确度追踪</span></div>
+    <div id="predictionAccuracy">
+      <p style="color:var(--text-muted);font-size:13px">随着比赛进行,这里将追踪预测 vs 真实结果的偏差</p>
+    </div>
+  </div>
+</main>
+
+</div>
+
+<script src="js/data.js"></script>
+
+<script src="js/squads.js"></script>
+<script src="js/shared.js"></script>
+<script>
+// === Stats ===
+(function() {
+  const finished = getFinishedMatches();
+  const upcoming = getUpcomingMatches();
+  const totalGoals = finished.reduce((s,m) => s + (m.score?.h||0) + (m.score?.a||0), 0);
+  const avgGoals = finished.length ? (totalGoals / finished.length).toFixed(1) : "—";
+
+  // Check prediction accuracy for finished matches
+  let correctResults = 0, exactScores = 0;
+  finished.forEach(m => {
+    const pred = m.prediction;
+    const real = m.score;
+    if (!real) return;
+    const predWinner = pred.h > pred.a ? 'h' : pred.h < pred.a ? 'a' : 'd';
+    const realWinner = real.h > real.a ? 'h' : real.h < real.a ? 'a' : 'd';
+    if (predWinner === realWinner) correctResults++;
+    if (pred.h === real.h && pred.a === real.a) exactScores++;
+  });
+
+  document.getElementById('statsRow').innerHTML = `
+    <div class="stat-card"><div class="stat-value">${finished.length}<span style="font-size:14px;color:var(--text-muted)"> / 72</span></div><div class="stat-label">已完赛</div></div>
+    <div class="stat-card"><div class="stat-value">${totalGoals}</div><div class="stat-label">总进球数</div><div class="stat-sub">场均 ${avgGoals} 球</div></div>
+    <div class="stat-card"><div class="stat-value">${correctResults}/${finished.length||0}</div><div class="stat-label">预测方向正确</div><div class="stat-sub ${correctResults===finished.length&&finished.length>0?'up':'down'}">${finished.length?(correctResults/finished.length*100).toFixed(0)+'%':'-'}</div></div>
+    <div class="stat-card"><div class="stat-value">${exactScores}/${finished.length||0}</div><div class="stat-label">比分完全命中</div></div>
+    <div class="stat-card"><div class="stat-value">${upcoming.length}</div><div class="stat-label">剩余比赛</div></div>
+  `;
+
+  // Today
+  const today = new Date().toISOString().split('T')[0];
+  const todayM = getMatchesByDate(today);
+  const cont = document.getElementById('todayMatches');
+  if (todayM.length === 0) {
+    cont.innerHTML = '<p style="color:var(--text-muted);font-size:13px">今天没有比赛安排</p>';
+  } else {
+    cont.innerHTML = todayM.map(m => matchRowHTML(m)).join('');
+    const liveCount = todayM.filter(m => m.status === 'live').length;
+    if (liveCount > 0) {
+      document.getElementById('liveBadge').style.display = 'inline-flex';
+    }
+  }
+
+  // Recent (last 5 finished)
+  const recent = finished.slice(-5).reverse();
+  document.getElementById('recentResults').innerHTML = recent.length
+    ? recent.map(m => matchRowHTML(m)).join('')
+    : '<p style="color:var(--text-muted);font-size:13px">暂无完赛数据</p>';
+
+  // Upcoming (next 5)
+  const next = upcoming.slice(0, 5);
+  document.getElementById('upcomingMatches').innerHTML = next.length
+    ? next.map(m => matchRowHTML(m)).join('')
+    : '<p style="color:var(--text-muted);font-size:13px">暂无后续比赛</p>';
+
+  // Prediction accuracy detail
+  if (finished.length > 0) {
+    let html = '<div style="margin-top:8px">';
+    finished.forEach(m => {
+      const pred = m.prediction;
+      const real = m.score;
+      const home = TEAMS[m.home], away = TEAMS[m.away];
+      const correct = (pred.h > pred.a) === (real.h > real.a) && (pred.h === real.h || pred.a === real.a || (pred.h-pred.a) === (real.h-real.a));
+      const icon = pred.h === real.h && pred.a === real.a ? '🎯' : correct ? '✅' : '❌';
+      const upset = isUpset(m);
+      html += `<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);font-size:13px;flex-wrap:wrap">
+        <span>${icon}</span>
+        <span>${home.flag} ${home.name} ${real.h}-${real.a} ${away.name} ${away.flag}</span>
+        <span style="color:var(--text-muted);font-size:11px">预测 ${pred.h}-${pred.a}</span>
+        <span style="color:${correct?'var(--green)':'var(--red)'};font-size:11px">${pred.h===real.h&&pred.a===real.a?'完全命中':correct?'方向正确':'偏差'}</span>
+        ${upset ? `<span class="badge" style="background:var(--red-light);color:var(--red);font-size:10px" title="${upset.desc}">${upset.level==='major'?'⚠ 大冷门':'⚠ 冷门'}</span>` : ''}
+      </div>`;
+    });
+    html += '</div>';
+    document.getElementById('predictionAccuracy').innerHTML = html;
+  }
+})();
+</script>
+</body>
+</html>

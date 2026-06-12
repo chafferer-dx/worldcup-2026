@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="page" content="groups">
+<title>2026 世界杯 · 小组积分</title>
+<link rel="stylesheet" href="css/style.css">
+<style>
+  tr.q-auto td:first-child { border-left: 3px solid var(--green); }
+  tr.q-playoff td:first-child { border-left: 3px solid var(--amber); }
+  tr.q-out { opacity: .45; }
+</style>
+</head>
+<body>
+<div class="app-layout">
+
+<nav class="sidebar" id="sidebar"></nav>
+
+<main class="main-content">
+  <div class="page-header">
+    <h1>小组积分</h1>
+    <p>12组 · 各组前2直接晋级 · 8个最佳第3名晋级 · 实时更新</p>
+  </div>
+
+  <div class="stats-grid" id="statsBar"></div>
+
+  <!-- Standings grid -->
+  <div class="grid-3" id="groupCards"></div>
+
+  <!-- Finished matches -->
+  <div style="margin-top:32px">
+    <h2 style="font-size:17px;font-weight:600;margin-bottom:14px">各组已完赛情况</h2>
+    <div class="grid-3" id="finishedByGroup"></div>
+  </div>
+</main>
+
+</div>
+
+<script src="js/data.js"></script>
+
+<script src="js/squads.js"></script>
+<script src="js/shared.js"></script>
+<script>
+(function() {
+  const groupLetters = Object.keys(GROUPS);
+  const finishedMatches = getFinishedMatches();
+  const totalGoals = finishedMatches.reduce((s,m) => s + m.score.h + m.score.a, 0);
+  const remaining = MATCHES.filter(m => m.status !== 'finished').length;
+
+  document.getElementById('statsBar').innerHTML = `
+    <div class="stat-card"><div class="stat-value">12</div><div class="stat-label">小组</div></div>
+    <div class="stat-card"><div class="stat-value">${finishedMatches.length}<span style="font-size:14px;color:var(--text-muted)"> / 72</span></div><div class="stat-label">已完赛</div></div>
+    <div class="stat-card"><div class="stat-value">${totalGoals}</div><div class="stat-label">总进球</div></div>
+    <div class="stat-card"><div class="stat-value">${remaining}</div><div class="stat-label">剩余场次</div></div>
+  `;
+
+  // Standings cards
+  function fmtGD(gd) { return gd > 0 ? '+' + gd : String(gd); }
+
+  document.getElementById('groupCards').innerHTML = groupLetters.map(g => {
+    const standings = getGroupStandings(g);
+    const gFinished = getMatchesByGroup(g).filter(m => m.status === 'finished');
+    const hasAny = gFinished.length > 0;
+
+    const badgeHTML = hasAny
+      ? `<span class="badge badge-group">${gFinished.length}/6 场</span>`
+      : '<span class="badge badge-upcoming">未开赛</span>';
+
+    const rows = standings.map((t, i) => {
+      let rowClass = '';
+      if (hasAny) {
+        if (i < 2) rowClass = 'q-auto';
+        else if (i === 2) rowClass = 'q-playoff';
+        else rowClass = 'q-out';
+      }
+      const dash = '—';
+      return `<tr class="${rowClass}">
+        <td style="text-align:center;font-size:11px;color:var(--text-muted);width:24px">${i+1}</td>
+        <td>
+          <div class="team-cell" onclick="showTeamModal('${t.code}')" title="查看${t.name}阵容" style="cursor:pointer">
+            <span class="team-flag-sm">${t.flag}</span>
+            <div>
+              <span class="team-name-cell" style="border-bottom:1px dashed transparent;transition:border-color .15s" onmouseenter="this.style.borderBottomColor='var(--accent)'" onmouseleave="this.style.borderBottomColor='transparent'">${t.name}</span>
+              ${!hasAny ? `<span style="font-size:10px;color:var(--text-muted);display:block">FIFA #${t.rank}</span>` : ''}
+            </div>
+          </div>
+        </td>
+        <td style="text-align:center">${hasAny ? t.pld : dash}</td>
+        <td style="text-align:center">${hasAny ? t.w : dash}</td>
+        <td style="text-align:center">${hasAny ? t.d : dash}</td>
+        <td style="text-align:center">${hasAny ? t.l : dash}</td>
+        <td style="text-align:center">${hasAny ? t.gf : dash}</td>
+        <td style="text-align:center">${hasAny ? t.ga : dash}</td>
+        <td style="text-align:center">${hasAny ? fmtGD(t.gd) : dash}</td>
+        <td style="text-align:center;font-weight:700">${hasAny ? t.pts : dash}</td>
+      </tr>`;
+    }).join('');
+
+    return `<div class="card" style="margin-bottom:16px">
+      <div class="card-header">
+        <span class="card-title">${g}组</span>
+        ${badgeHTML}
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr>
+            <th style="width:24px;text-align:center">#</th>
+            <th>球队</th>
+            <th style="text-align:center">赛</th>
+            <th style="text-align:center">胜</th>
+            <th style="text-align:center">平</th>
+            <th style="text-align:center">负</th>
+            <th style="text-align:center">GF</th>
+            <th style="text-align:center">GA</th>
+            <th style="text-align:center">GD</th>
+            <th style="text-align:center">分</th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    </div>`;
+  }).join('');
+
+  // Finished matches per group
+  document.getElementById('finishedByGroup').innerHTML = groupLetters.map(g => {
+    const gFinished = getMatchesByGroup(g).filter(m => m.status === 'finished');
+    if (gFinished.length === 0) return '';
+
+    const list = gFinished.map(m => {
+      const home = TEAMS[m.home], away = TEAMS[m.away];
+      return `<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px">
+        <span style="display:flex;align-items:center;gap:6px">
+          <span class="team-flag-sm">${home.flag}</span><span style="font-weight:500">${home.name}</span>
+          <span style="font-weight:700;margin:0 4px">${m.score.h}-${m.score.a}</span>
+          <span class="team-flag-sm">${away.flag}</span><span>${away.name}</span>
+        </span>
+        <span style="font-size:11px;color:var(--text-muted);white-space:nowrap">${m.date.slice(5)}</span>
+      </div>`;
+    }).join('');
+
+    return `<div class="card" style="margin-bottom:16px">
+      <div class="card-header">
+        <span class="card-title">${g}组</span>
+        <span class="badge badge-finished">${gFinished.length}场</span>
+      </div>
+      <div style="margin-top:4px">${list}</div>
+    </div>`;
+  }).join('');
+})();
+</script>
+</body>
+</html>

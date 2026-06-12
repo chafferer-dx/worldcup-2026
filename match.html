@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="page" content="match">
+<title>比赛详情 · 2026 世界杯</title>
+<link rel="stylesheet" href="css/style.css">
+<style>
+  .timeline { position: relative; padding-left: 24px; }
+  .timeline::before { content: ''; position: absolute; left: 8px; top: 4px; bottom: 4px; width: 2px; background: var(--border); }
+  .tl-item { display: flex; align-items: flex-start; gap: 10px; padding: 6px 0; font-size: 13px; position: relative; }
+  .tl-dot {
+    position: absolute; left: -20px; top: 10px;
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    border: 2px solid;
+    background: #fff;
+  }
+  .tl-dot.goal { border-color: var(--green); background: var(--green-light); }
+  .tl-dot.red { border-color: var(--red); background: var(--red-light); }
+  .tl-dot.yellow { border-color: var(--amber); background: var(--amber-light); }
+  .tl-minute { font-weight: 700; min-width: 32px; color: var(--text); }
+  .tl-event { flex: 1; }
+  .tl-player { font-weight: 500; }
+  .tl-type { font-size: 11px; color: var(--text-muted); margin-left: 4px; }
+
+  .compare-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 12px 0; }
+  .compare-item { padding: 12px; border-radius: var(--radius-xs); text-align: center; }
+  .compare-item.pred { background: var(--accent-light); }
+  .compare-item.real { background: var(--green-light); }
+  .compare-label { font-size: 10px; text-transform: uppercase; letter-spacing: .5px; color: var(--text-secondary); }
+  .compare-value { font-size: 22px; font-weight: 700; margin-top: 2px; }
+
+  .path-flow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; padding: 12px 0; }
+  .path-node { padding: 6px 12px; border-radius: 100px; font-weight: 500; white-space: nowrap; }
+  .path-node.good { background: var(--green-light); color: var(--green); }
+  .path-node.bad { background: var(--red-light); color: var(--red); }
+  .path-node.neutral { background: #f3f4f6; color: var(--text-secondary); }
+  .path-arrow { color: var(--text-muted); font-size: 16px; }
+</style>
+</head>
+<body>
+<div class="app-layout">
+
+<nav class="sidebar" id="sidebar"></nav>
+
+<main class="main-content" id="app">
+  <div id="loading" style="text-align:center;padding:60px"><div class="spinner" style="margin:0 auto"></div><p style="margin-top:12px;color:var(--text-muted);font-size:13px">加载中...</p></div>
+</main>
+
+</div>
+
+<script src="js/data.js"></script>
+
+<script src="js/squads.js"></script>
+<script src="js/shared.js"></script>
+<script>
+(function() {
+  const params = new URLSearchParams(window.location.search);
+  const matchId = params.get('id');
+  const main = document.getElementById('app');
+
+  if (!matchId) {
+    main.innerHTML = '<div style="text-align:center;padding:60px;color:var(--text-muted)">未指定比赛 ID</div>';
+    return;
+  }
+
+  const m = getMatch(matchId);
+  if (!m) {
+    main.innerHTML = `<div style="text-align:center;padding:60px;color:var(--text-muted)">比赛 ${matchId} 未找到</div>`;
+    return;
+  }
+
+  const home = TEAMS[m.home], away = TEAMS[m.away];
+  const pred = m.prediction;
+  const isFinished = m.status === 'finished';
+  const isLive = m.status === 'live';
+
+  document.title = `${home.name} vs ${away.name} · 2026 世界杯`;
+
+  let html = '';
+
+  // --- Hero ---
+  html += `<div class="card" style="margin-bottom:20px">
+    <div class="detail-hero">
+      <div class="detail-team">
+        <div class="detail-flag">${home.flag}</div>
+        <div class="detail-name">${home.name}</div>
+        <div class="detail-rank">FIFA #${home.rank}</div>
+      </div>
+      <div style="text-align:center">
+        ${isFinished ? `<div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">最终比分</div>` : isLive ? `<span class="badge badge-live"><span class="live-dot"></span> LIVE</span>` : `<div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">预测比分</div>`}
+        <div style="display:flex;align-items:center;gap:12px">
+          <span class="detail-score" style="color:${isFinished ? 'var(--text)' : 'var(--accent)'}">${isFinished ? m.score.h : pred.h}</span>
+          <span class="detail-score-sep">—</span>
+          <span class="detail-score" style="color:${isFinished ? 'var(--text)' : 'var(--accent)'}">${isFinished ? m.score.a : pred.a}</span>
+        </div>
+      </div>
+      <div class="detail-team">
+        <div class="detail-flag">${away.flag}</div>
+        <div class="detail-name">${away.name}</div>
+        <div class="detail-rank">FIFA #${away.rank}</div>
+      </div>
+    </div>
+    <div class="detail-meta">
+      ${m.date} · ${m.time} ET · ${m.group}组 · ${m.venue}
+    </div>
+  </div>`;
+
+  // --- Timeline (finished matches) ---
+  if (isFinished && m.events && m.events.length > 0) {
+    html += `<div class="card" style="margin-bottom:20px">
+      <div class="card-header"><span class="card-title">比赛进程</span></div>
+      <div class="timeline">
+        ${m.events.map(e => {
+          const typeMap = { goal: 'goal', red_card: 'red', yellow_card: 'yellow' };
+          const typeName = { goal: '进球 ⚽', red_card: '红牌 🟥', yellow_card: '黄牌 🟨' };
+          const dotClass = typeMap[e.t] || 'yellow';
+          return `<div class="tl-item">
+            <div class="tl-dot ${dotClass}"></div>
+            <span class="tl-minute">${e.m}'</span>
+            <span class="tl-event"><span class="tl-player">${e.p}</span><span class="tl-type">${typeName[e.t] || e.t}</span></span>
+          </div>`;
+        }).join('')}
+      </div>
+    </div>`;
+  }
+
+  // --- Prediction vs Reality ---
+  if (isFinished) {
+    const predWinner = pred.h > pred.a ? 'h' : pred.h < pred.a ? 'a' : 'd';
+    const realWinner = m.score.h > m.score.a ? 'h' : m.score.h < m.score.a ? 'a' : 'd';
+    const correctResult = predWinner === realWinner;
+    const exactScore = pred.h === m.score.h && pred.a === m.score.a;
+
+    html += `<div class="card" style="margin-bottom:20px">
+      <div class="card-header">
+        <span class="card-title">预测 vs 真实对比</span>
+        ${(() => { const upset = isUpset(m); return upset ? `<span class="badge" style="background:var(--red-light);color:var(--red);font-size:11px" title="${upset.desc}">${upset.label}</span>` : ''; })()}
+      </div>
+      <div class="compare-grid">
+        <div class="compare-item pred">
+          <div class="compare-label">AI 预测</div>
+          <div class="compare-value">${pred.h} — ${pred.a}</div>
+          <div style="font-size:11px;color:var(--text-secondary);margin-top:2px">${pred.hp}% / ${pred.dp}% / ${pred.ap}%</div>
+        </div>
+        <div class="compare-item real">
+          <div class="compare-label">真实比分</div>
+          <div class="compare-value">${m.score.h} — ${m.score.a}</div>
+          <div style="font-size:11px;color:var(--text-secondary);margin-top:2px">${m.date}</div>
+        </div>
+      </div>
+      <div class="analysis-box ${exactScore ? 'correct' : correctResult ? 'correct' : 'wrong'}">
+        <strong>${exactScore ? '🎯 比分完全命中' : correctResult ? '✅ 胜负方向正确' : '❌ 预测偏差'}</strong><br>
+        ${exactScore ? `预测 ${pred.h}-${pred.a} 与实际比分完全一致。预测逻辑: ${pred.analysis}` :
+          correctResult ? `预测胜负方向正确,但比分有偏差。预测 ${pred.h}-${pred.a},实际 ${m.score.h}-${m.score.a}。分析: ${pred.analysis}` :
+          `预测方向出现偏差。原预测: ${pred.analysis}。实际结果与预测不符,可能原因: 球队临场状态、战术调整、红牌/伤病等因素影响了比赛走势。`}
+      </div>
+    </div>`;
+  }
+
+  // --- Prediction + Probabilities (upcoming) ---
+  if (!isFinished) {
+    html += `<div class="card" style="margin-bottom:20px">
+      <div class="card-header"><span class="card-title">胜率预测</span></div>
+      ${probBarsHTML(pred.hp, pred.dp, pred.ap, home.name, away.name)}
+      <div class="analysis-box">
+        <strong>预测分析</strong><br>
+        ${pred.analysis}
+      </div>
+      <div style="margin-top:12px;font-size:12px;color:var(--text-secondary)">
+        <strong>关键因素:</strong> ${pred.factors || '暂缺'}
+      </div>
+    </div>`;
+  }
+
+  // --- Odds ---
+  if (m.odds) {
+    const odds = m.odds;
+    html += `<div class="card" style="margin-bottom:20px">
+      <div class="card-header">
+        <span class="card-title">实时赔率</span>
+        <span style="font-size:11px;color:${oddsMoveColor(odds.move)}">${oddsMoveLabel(odds.move)}</span>
+      </div>
+      <div class="odds-grid">
+        <div class="odds-item">
+          <div class="odds-label">主胜</div>
+          <div class="odds-value">${odds.h}</div>
+          <div class="odds-move" style="color:${odds.move.includes('home') ? 'var(--green)' : 'var(--text-muted)'}">${odds.home_flow || ''}</div>
+        </div>
+        <div class="odds-item">
+          <div class="odds-label">平局</div>
+          <div class="odds-value">${odds.d}</div>
+          <div class="odds-move" style="color:${odds.move.includes('draw') ? 'var(--amber)' : 'var(--text-muted)'}">${odds.draw_flow || ''}</div>
+        </div>
+        <div class="odds-item">
+          <div class="odds-label">客胜</div>
+          <div class="odds-value">${odds.a}</div>
+          <div class="odds-move" style="color:${odds.move.includes('away') ? 'var(--green)' : 'var(--text-muted)'}">${odds.away_flow || ''}</div>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  // --- Knockout Path Analysis ---
+  html += `<div class="card" style="margin-bottom:20px">
+    <div class="card-header"><span class="card-title">淘汰赛路径分析</span></div>
+    <div style="font-size:13px;color:var(--text-secondary);line-height:1.8">
+      ${getPathAnalysis(m, home, away)}
+    </div>
+  </div>`;
+
+  // --- Group Context ---
+  const groupStandings = getGroupStandings(m.group);
+  html += `<div class="card">
+    <div class="card-header"><span class="card-title">${m.group}组形势</span></div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>#</th><th>球队</th><th>赛</th><th>胜</th><th>平</th><th>负</th><th>GF</th><th>GA</th><th>分</th></tr></thead>
+        <tbody>
+          ${groupStandings.map((t,i) => {
+            const hasAny = t.pld > 0;
+            return `<tr class="${i<2&&hasAny?'q-auto':i===2&&hasAny?'q-playoff':i===3&&hasAny?'q-out':''}">
+              <td style="text-align:center;font-size:11px">${i+1}</td>
+              <td><div class="team-cell"><span class="team-flag-sm">${t.flag}</span><span class="team-name-cell">${t.name}</span></div></td>
+              <td style="text-align:center">${hasAny?t.pld:'—'}</td>
+              <td style="text-align:center">${hasAny?t.w:'—'}</td>
+              <td style="text-align:center">${hasAny?t.d:'—'}</td>
+              <td style="text-align:center">${hasAny?t.l:'—'}</td>
+              <td style="text-align:center">${hasAny?t.gf:'—'}</td>
+              <td style="text-align:center">${hasAny?t.ga:'—'}</td>
+              <td style="text-align:center;font-weight:700">${hasAny?t.pts:'—'}</td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>
+  </div>`;
+
+  main.innerHTML = html;
+
+  function getPathAnalysis(match, home, away) {
+    const g = match.group;
+    const groupMatches = getMatchesByGroup(g);
+    const remainingForGroup = groupMatches.filter(x => x.status !== 'finished').length;
+
+    if (remainingForGroup > 5) {
+      return `<p>小组赛刚刚开始,淘汰赛路径尚不明朗。关注后续比赛以了解具体对位。</p>
+        <p style="margin-top:8px"><strong>${g}组头名</strong> → 1/16决赛对阵另一组第3名 (相对轻松)<br>
+        <strong>${g}组第2名</strong> → 1/16决赛对阵另一组第1名 (挑战较大)<br>
+        <strong>${g}组第3名</strong> → 需与其他组第3名比较成绩,8个最佳第3晋级</p>`;
+    }
+
+    // Analyze based on current standings
+    const standings = getGroupStandings(g);
+    const homePos = standings.findIndex(t => t.code === match.home) + 1;
+    const awayPos = standings.findIndex(t => t.code === match.away) + 1;
+
+    return `
+      <p><strong>${home.name}</strong> 当前小组排名第 ${homePos} 名 — ${homePos <= 2 ? '处于直接晋级区' : homePos === 3 ? '处于附加晋级区' : '需连胜才能晋级'}</p>
+      <p><strong>${away.name}</strong> 当前小组排名第 ${awayPos} 名 — ${awayPos <= 2 ? '处于直接晋级区' : awayPos === 3 ? '处于附加晋级区' : '需连胜才能晋级'}</p>
+      <p style="margin-top:8px;font-size:12px;color:var(--text-muted)">48队制下,12个小组前2名(24队) + 8个最佳小组第3名 = 32强进入淘汰赛。小组排名直接影响淘汰赛首轮对手的强弱。</p>
+    `;
+  }
+})();
+</script>
+</body>
+</html>

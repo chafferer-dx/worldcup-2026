@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="page" content="schedule">
+<title>2026 世界杯 · 完整赛程</title>
+<link rel="stylesheet" href="css/style.css">
+<style>
+  .date-tabs-wrap { overflow-x: auto; padding-bottom: 4px; margin-bottom: 16px; }
+  .date-tabs-wrap::-webkit-scrollbar { height: 3px; }
+  .date-tabs-wrap::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  .date-tabs-inner { display: flex; gap: 4px; width: max-content; }
+  .md-label { font-size: 11px; color: var(--text-muted); padding: 0 4px 6px; letter-spacing: .5px; font-weight: 600; }
+  .empty-state { text-align: center; padding: 40px; color: var(--text-muted); }
+  .empty-state .icon { font-size: 40px; margin-bottom: 12px; }
+</style>
+</head>
+<body>
+<div class="app-layout">
+
+<nav class="sidebar" id="sidebar"></nav>
+
+<main class="main-content">
+  <div class="page-header">
+    <h1>完整赛程</h1>
+    <p>小组赛 12组 · 72场比赛 · 点击比赛查看详情</p>
+  </div>
+
+  <div class="stats-grid" id="statsBar"></div>
+
+  <!-- Date tabs -->
+  <div class="date-tabs-wrap">
+    <div class="date-tabs-inner" id="dateTabs"></div>
+  </div>
+
+  <!-- Group filter -->
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
+    <span style="font-size:12px;color:var(--text-secondary)">组别:</span>
+    <div class="tabs" id="groupFilter">
+      <button class="tab active" data-group="all">全部</button>
+    </div>
+  </div>
+
+  <!-- Match list -->
+  <div id="matchList"></div>
+</main>
+
+</div>
+
+<script src="js/data.js"></script>
+
+<script src="js/squads.js"></script>
+<script src="js/shared.js"></script>
+<script>
+(function() {
+  // Stats
+  const finished = getFinishedMatches();
+  const upcoming = getUpcomingMatches();
+  const live = MATCHES.filter(m => m.status === 'live');
+  const totalGoals = finished.reduce((s,m) => s + (m.score?.h||0) + (m.score?.a||0), 0);
+
+  document.getElementById('statsBar').innerHTML = `
+    <div class="stat-card"><div class="stat-value">72</div><div class="stat-label">总场次</div></div>
+    <div class="stat-card"><div class="stat-value">${finished.length}</div><div class="stat-label">已完赛</div></div>
+    <div class="stat-card"><div class="stat-value">${upcoming.length + live.length}</div><div class="stat-label">剩余</div></div>
+    <div class="stat-card"><div class="stat-value">${totalGoals}</div><div class="stat-label">总进球 · 场均${finished.length ? (totalGoals/finished.length).toFixed(1) : '-'}</div></div>
+  `;
+
+  // Date tabs grouped by matchday
+  const datesByMD = { 1: [], 2: [], 3: [] };
+  MATCHES.forEach(m => {
+    // Determine matchday by ID suffix
+    const suffix = m.id.slice(-1);
+    const md = (suffix === '1' || suffix === '2') ? 1 : (suffix === '3' || suffix === '4') ? 2 : 3;
+    if (!datesByMD[md].includes(m.date)) datesByMD[md].push(m.date);
+  });
+  for (const md in datesByMD) datesByMD[md].sort();
+
+  const dateTabContainer = document.getElementById('dateTabs');
+  let dateHTML = '';
+  for (const md of ['1','2','3']) {
+    dateHTML += `<div class="md-label">MD${md}</div>`;
+    datesByMD[md].forEach(d => {
+      const dObj = new Date(d + 'T12:00:00');
+      const label = `${dObj.getMonth()+1}/${dObj.getDate()} ${['日','一','二','三','四','五','六'][dObj.getDay()]}`;
+      dateHTML += `<button class="tab" data-date="${d}">${label}</button>`;
+    });
+  }
+  dateTabContainer.innerHTML = dateHTML;
+
+  // Group filter
+  const gf = document.getElementById('groupFilter');
+  'ABCDEFGHIJKL'.split('').forEach(g => {
+    const btn = document.createElement('button');
+    btn.className = 'tab';
+    btn.dataset.group = g;
+    btn.textContent = g + '组';
+    gf.appendChild(btn);
+  });
+
+  // State
+  let activeDate = null;
+  let activeGroup = 'all';
+
+  // Set first date with upcoming/finished matches as default
+  const todayStr = new Date().toISOString().split('T')[0];
+  const todayMatches = getMatchesByDate(todayStr);
+  if (todayMatches.length > 0) activeDate = todayStr;
+  else {
+    const firstFinished = finished[finished.length-1];
+    activeDate = firstFinished ? firstFinished.date : MATCHES[0].date;
+  }
+
+  function render() {
+    // Update tabs
+    document.querySelectorAll('#dateTabs .tab').forEach(t => t.classList.toggle('active', t.dataset.date === activeDate));
+    document.querySelectorAll('#groupFilter .tab').forEach(t => {
+      t.classList.toggle('active', (t.dataset.group || 'all') === activeGroup);
+    });
+
+    // Filter matches
+    let matches = activeDate ? getMatchesByDate(activeDate) : [...MATCHES];
+    if (activeGroup !== 'all') matches = matches.filter(m => m.group === activeGroup);
+
+    const container = document.getElementById('matchList');
+    if (matches.length === 0) {
+      container.innerHTML = `
+        <div class="empty-state">
+          <div class="icon">📅</div>
+          <p>暂无比赛</p>
+          <p style="font-size:12px;margin-top:4px">${activeDate || ''} ${activeGroup !== 'all' ? activeGroup+'组' : ''} 没有安排比赛</p>
+        </div>`;
+    } else {
+      container.innerHTML = matches.map(m => matchRowHTML(m, true)).join('');
+    }
+  }
+
+  // Event listeners
+  dateTabContainer.addEventListener('click', e => {
+    if (e.target.classList.contains('tab')) {
+      activeDate = e.target.dataset.date;
+      render();
+    }
+  });
+  gf.addEventListener('click', e => {
+    if (e.target.classList.contains('tab')) {
+      activeGroup = e.target.dataset.group || 'all';
+      render();
+    }
+  });
+
+  render();
+})();
+</script>
+</body>
+</html>

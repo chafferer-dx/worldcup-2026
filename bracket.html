@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="page" content="bracket">
+<title>2026 世界杯 · 晋级之路</title>
+<link rel="stylesheet" href="css/style.css">
+<style>
+  .bracket-container {
+    position: relative;
+    overflow-x: auto;
+    padding: 20px 0;
+  }
+  .bracket-svg { min-width: 100%; }
+
+  /* Group node */
+  .group-node { cursor: pointer; transition: transform .2s; }
+  .group-node:hover { transform: scale(1.02); }
+
+  .team-rect { transition: all .2s; }
+  .team-rect:hover { filter: brightness(.95); }
+  .team-rect.qualified { stroke-width: 2.5; }
+  .team-rect.eliminated { opacity: .4; }
+
+  /* Legend */
+  .bracket-legend {
+    display: flex;
+    gap: 20px;
+    justify-content: center;
+    margin-bottom: 20px;
+    font-size: 12px;
+    flex-wrap: wrap;
+  }
+  .bracket-legend-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .legend-swatch {
+    width: 14px; height: 14px;
+    border-radius: 3px;
+    border: 2px solid;
+  }
+
+  /* Tooltip */
+  .bracket-tooltip {
+    position: fixed;
+    background: var(--text);
+    color: #fff;
+    padding: 12px 16px;
+    border-radius: var(--radius-xs);
+    font-size: 12px;
+    pointer-events: none;
+    z-index: 999;
+    opacity: 0;
+    transition: opacity .15s;
+    max-width: 260px;
+    line-height: 1.6;
+  }
+  .bracket-tooltip.show { opacity: 1; }
+
+  /* Info panel */
+  .info-panel {
+    position: fixed;
+    right: 24px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 280px;
+    background: var(--card);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-lg);
+    padding: 0;
+    z-index: 100;
+    display: none;
+    overflow: hidden;
+  }
+  .info-panel.show { display: block; }
+  .info-panel-header {
+    background: var(--accent);
+    color: #fff;
+    padding: 12px 16px;
+    font-weight: 600;
+    font-size: 14px;
+  }
+  .info-panel-body { padding: 16px; font-size: 13px; line-height: 1.8; }
+  .info-panel-close {
+    position: absolute;
+    right: 12px;
+    top: 10px;
+    background: none;
+    border: none;
+    color: #fff;
+    cursor: pointer;
+    font-size: 18px;
+    opacity: .7;
+  }
+  .info-panel-close:hover { opacity: 1; }
+
+  /* Responsive */
+  @media (max-width: 768px) {
+    .info-panel { right: 8px; width: 260px; }
+  }
+</style>
+</head>
+<body>
+<div class="app-layout">
+
+<nav class="sidebar" id="sidebar"></nav>
+
+<main class="main-content">
+  <div class="page-header">
+    <h1>晋级之路</h1>
+    <p>12组 → 36强 · 思维导图 · 点击队伍查看晋级路径</p>
+  </div>
+
+  <div class="bracket-legend">
+    <div class="bracket-legend-item"><div class="legend-swatch" style="background:#dcfce7;border-color:#16a34a"></div> 直接晋级区 (前2)</div>
+    <div class="bracket-legend-item"><div class="legend-swatch" style="background:#fffbeb;border-color:#d97706"></div> 可能晋级区 (第3)</div>
+    <div class="bracket-legend-item"><div class="legend-swatch" style="background:#fef2f2;border-color:#dc2626"></div> 出局区 (第4)</div>
+    <div class="bracket-legend-item"><div class="legend-swatch" style="background:#f3f4f6;border-color:#9ca3af"></div> 未开赛</div>
+  </div>
+
+  <div class="bracket-container" id="bracketContainer">
+    <svg class="bracket-svg" id="bracketSvg"></svg>
+  </div>
+
+  <div class="info-panel" id="infoPanel">
+    <div class="info-panel-header" id="infoPanelHeader">队伍详情</div>
+    <button class="info-panel-close" onclick="document.getElementById('infoPanel').classList.remove('show')">✕</button>
+    <div class="info-panel-body" id="infoPanelBody"></div>
+  </div>
+</main>
+
+</div>
+
+<div class="bracket-tooltip" id="tooltip"></div>
+
+<script src="js/data.js"></script>
+
+<script src="js/squads.js"></script>
+<script src="js/shared.js"></script>
+<script>
+// ============================================================
+// Mind-map bracket visualization
+// ============================================================
+
+const GROUPS_ORDER = ['A','B','C','D','E','F','G','H','I','J','K','L'];
+const GROUP_COLORS = {
+  A:'#e11d48', B:'#2563eb', C:'#16a34a', D:'#d97706',
+  E:'#7c3aed', F:'#db2777', G:'#0891b2', H:'#ea580c',
+  I:'#4f46e5', J:'#65a30d', K:'#c026d3', L:'#0d9488'
+};
+
+// Layout constants
+const GRID_COLS = 4;
+const CELL_W = 250, CELL_H = 180;
+const GAP_X = 30, GAP_Y = 10;
+const PADDING = 30;
+
+function buildBracket() {
+  const svg = document.getElementById('bracketSvg');
+  const rows = Math.ceil(GROUPS_ORDER.length / GRID_COLS);
+  const totalW = GRID_COLS * CELL_W + (GRID_COLS - 1) * GAP_X + PADDING * 2;
+  const totalH = rows * CELL_H + (rows - 1) * GAP_Y + PADDING * 2 + 40;
+
+  svg.setAttribute('viewBox', `0 0 ${totalW} ${totalH}`);
+  svg.setAttribute('width', '100%');
+  svg.setAttribute('height', totalH);
+  svg.innerHTML = '';
+
+  // Title
+  const title = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+  title.setAttribute('x', totalW/2);
+  title.setAttribute('y', 24);
+  title.setAttribute('text-anchor', 'middle');
+  title.setAttribute('font-size', '14');
+  title.setAttribute('font-weight', '700');
+  title.setAttribute('fill', '#6b7280');
+  title.textContent = '2026 FIFA WORLD CUP — GROUP STAGE';
+  svg.appendChild(title);
+
+  // Group cards
+  GROUPS_ORDER.forEach((g, idx) => {
+    const row = Math.floor(idx / GRID_COLS);
+    const col = idx % GRID_COLS;
+    const x = PADDING + col * (CELL_W + GAP_X);
+    const y = PADDING + 40 + row * (CELL_H + GAP_Y);
+    const color = GROUP_COLORS[g];
+    const standings = getGroupStandings(g);
+    const finishedMatches = getMatchesByGroup(g).filter(m => m.status === 'finished');
+
+    // Group background
+    const bg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    bg.setAttribute('x', x);
+    bg.setAttribute('y', y);
+    bg.setAttribute('width', CELL_W);
+    bg.setAttribute('height', CELL_H);
+    bg.setAttribute('rx', '10');
+    bg.setAttribute('fill', '#fff');
+    bg.setAttribute('stroke', color);
+    bg.setAttribute('stroke-width', '2');
+    bg.setAttribute('filter', 'drop-shadow(0 2px 8px rgba(0,0,0,.06))');
+    svg.appendChild(bg);
+
+    // Group label
+    const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    label.setAttribute('x', x + 14);
+    label.setAttribute('y', y + 22);
+    label.setAttribute('font-size', '12');
+    label.setAttribute('font-weight', '700');
+    label.setAttribute('fill', color);
+    label.textContent = `GROUP ${g}`;
+    svg.appendChild(label);
+
+    // Match count badge
+    const badge = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    badge.setAttribute('x', x + CELL_W - 14);
+    badge.setAttribute('y', y + 22);
+    badge.setAttribute('text-anchor', 'end');
+    badge.setAttribute('font-size', '10');
+    badge.setAttribute('fill', '#9ca3af');
+    badge.textContent = `${finishedMatches.length}/6 场`;
+    svg.appendChild(badge);
+
+    // Teams
+    standings.forEach((t, ti) => {
+      const ty = y + 38 + ti * 34;
+
+      // Determine zone
+      let zoneColor = '#f3f4f6', zoneBorder = '#d1d5db';
+      if (finishedMatches.length > 0) {
+        if (ti === 0 || ti === 1) { zoneColor = '#dcfce7'; zoneBorder = '#16a34a'; }
+        else if (ti === 2) { zoneColor = '#fffbeb'; zoneBorder = '#d97706'; }
+        else { zoneColor = '#fef2f2'; zoneBorder = '#dc2626'; }
+      }
+
+      // Row bg
+      const rowBg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+      rowBg.setAttribute('x', x + 8);
+      rowBg.setAttribute('y', ty - 2);
+      rowBg.setAttribute('width', CELL_W - 16);
+      rowBg.setAttribute('height', '30');
+      rowBg.setAttribute('rx', '5');
+      rowBg.setAttribute('fill', zoneColor);
+      rowBg.setAttribute('stroke', zoneBorder);
+      rowBg.setAttribute('stroke-width', finishedMatches.length > 0 ? '1.5' : '1');
+      rowBg.setAttribute('stroke-dasharray', finishedMatches.length === 0 ? '4' : 'none');
+      rowBg.setAttribute('cursor', 'pointer');
+      rowBg.setAttribute('data-group', g);
+      rowBg.setAttribute('data-team', t.code);
+      rowBg.classList.add('team-rect');
+      if (ti < 2 && finishedMatches.length > 0) rowBg.classList.add('qualified');
+      if (ti === 3 && finishedMatches.length > 0 && finishedMatches.length >= 4) rowBg.classList.add('eliminated');
+
+      rowBg.addEventListener('click', (e) => {
+        e.stopPropagation();
+        showTeamModal(t.code);
+      });
+      rowBg.addEventListener('mouseenter', (e) => showTooltip(e, t, g, ti, finishedMatches));
+      rowBg.addEventListener('mouseleave', hideTooltip);
+
+      svg.appendChild(rowBg);
+
+      // Rank number
+      const rank = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      rank.setAttribute('x', x + 18);
+      rank.setAttribute('y', ty + 19);
+      rank.setAttribute('font-size', '11');
+      rank.setAttribute('font-weight', '600');
+      rank.setAttribute('fill', ti < 2 && finishedMatches.length > 0 ? '#16a34a' : '#6b7280');
+      rank.textContent = ti + 1;
+      svg.appendChild(rank);
+
+      // Flag
+      const flag = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      flag.setAttribute('x', x + 34);
+      flag.setAttribute('y', ty + 19);
+      flag.setAttribute('font-size', '16');
+      flag.textContent = t.flag;
+      svg.appendChild(flag);
+
+      // Name
+      const name = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      name.setAttribute('x', x + 58);
+      name.setAttribute('y', ty + 19);
+      name.setAttribute('font-size', '12');
+      name.setAttribute('font-weight', '500');
+      name.setAttribute('fill', finishedMatches.length === 0 ? '#6b7280' : '#111827');
+      name.textContent = t.name;
+      svg.appendChild(name);
+
+      // Stats
+      const statsX = x + CELL_W - 14;
+      const stats = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      stats.setAttribute('x', statsX);
+      stats.setAttribute('y', ty + 19);
+      stats.setAttribute('text-anchor', 'end');
+      stats.setAttribute('font-size', '10');
+      stats.setAttribute('font-weight', '600');
+      if (finishedMatches.length === 0) {
+        stats.setAttribute('fill', '#9ca3af');
+        stats.textContent = `#${t.rank}`;
+      } else {
+        stats.setAttribute('fill', '#374151');
+        stats.textContent = `${t.pts}分 · ${t.gf}:${t.ga}`;
+      }
+      svg.appendChild(stats);
+    });
+  });
+
+  // Add connecting lines between groups if there are enough finished matches
+  // This hints at the Round of 32 cross-group matchups
+}
+
+function showTeamInfo(t, group, finishedMatches) {
+  const panel = document.getElementById('infoPanel');
+  const header = document.getElementById('infoPanelHeader');
+  const body = document.getElementById('infoPanelBody');
+
+  header.textContent = `${t.flag} ${t.name} · ${group}组`;
+
+  const teamMatches = MATCHES.filter(m =>
+    m.group === group && (m.home === t.code || m.away === t.code)
+  );
+
+  let html = `
+    <div style="margin-bottom:10px">
+      <strong>FIFA 排名:</strong> #${t.rank}<br>
+      <strong>战绩:</strong> ${t.pld}赛 ${t.w}胜 ${t.d}平 ${t.l}负 · ${t.pts}分<br>
+      <strong>进球/失球:</strong> ${t.gf}/${t.ga} (${t.gd >= 0 ? '+' : ''}${t.gd})
+    </div>
+    <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px">比赛记录:</div>
+  `;
+
+  teamMatches.forEach(m => {
+    const opp = m.home === t.code ? TEAMS[m.away] : TEAMS[m.home];
+    const isHome = m.home === t.code;
+    if (m.status === 'finished') {
+      const myScore = isHome ? m.score.h : m.score.a;
+      const oppScore = isHome ? m.score.a : m.score.h;
+      const result = myScore > oppScore ? '胜' : myScore < oppScore ? '负' : '平';
+      const resultColor = result === '胜' ? 'var(--green)' : result === '负' ? 'var(--red)' : 'var(--amber)';
+      html += `<div style="font-size:11px;padding:3px 0">${m.date} ${isHome?'vs':'@'} ${opp.flag} ${opp.name} <span style="color:${resultColor};font-weight:600">${result} ${myScore}-${oppScore}</span></div>`;
+    } else {
+      html += `<div style="font-size:11px;padding:3px 0;color:var(--text-muted)">${m.date} ${isHome?'vs':'@'} ${opp.flag} ${opp.name} — 待进行</div>`;
+    }
+  });
+
+  // Round of 32 path analysis
+  if (t.pld > 0) {
+    html += `<div style="margin-top:10px;font-size:11px;color:var(--text-secondary);border-top:1px solid var(--border);padding-top:8px">`;
+    if (t.pts >= 4 || (t.pld === 2 && t.pts >= 3)) {
+      html += `📈 晋级形势: 大概率晋级36强<br>`;
+    } else if (t.pts === 0 && t.pld >= 2) {
+      html += `📉 晋级形势: 基本无缘晋级<br>`;
+    } else {
+      html += `⚖️ 晋级形势: 待定,后续比赛关键<br>`;
+    }
+    // Projected R32 opponent based on group and position
+    const posInGroup = getGroupStandings(group).findIndex(s => s.code === t.code) + 1;
+    html += `当前小组排名: 第${posInGroup}名<br>`;
+    html += `淘汰赛路径: ${getBracketPath(group, posInGroup)}`;
+    html += `</div>`;
+  }
+
+  body.innerHTML = html;
+  panel.classList.add('show');
+}
+
+function getBracketPath(group, pos) {
+  // Simplified bracket path mapping for 48-team format
+  // Top 2 from each group + 8 best 3rd place teams advance (36 teams → Round of 32)
+  const paths = {
+    1: '直接晋级 → 1/16决赛对阵某小组第3名 → 路径较优',
+    2: '直接晋级 → 1/16决赛对阵某小组第1名 → 首轮考验较大',
+    3: '需比较成绩 → 8个最佳小组第3晋级 → 路径不确定'
+  };
+  return paths[pos] || '待定';
+}
+
+function showTooltip(e, t, group, pos, finishedMatches) {
+  const tooltip = document.getElementById('tooltip');
+  tooltip.innerHTML = `
+    <strong>${t.flag} ${t.name}</strong><br>
+    FIFA #${t.rank} · ${group}组<br>
+    ${finishedMatches.length > 0 ? `${t.pld}场 ${t.pts}分 · 进${t.gf}失${t.ga}` : '尚未开赛'}
+  `;
+  tooltip.classList.add('show');
+  document.addEventListener('mousemove', moveTooltip);
+}
+
+function moveTooltip(e) {
+  const t = document.getElementById('tooltip');
+  t.style.left = (e.clientX + 16) + 'px';
+  t.style.top = (e.clientY - 40) + 'px';
+}
+
+function hideTooltip() {
+  document.getElementById('tooltip').classList.remove('show');
+  document.removeEventListener('mousemove', moveTooltip);
+}
+
+// Init
+buildBracket();
+</script>
+</body>
+</html>

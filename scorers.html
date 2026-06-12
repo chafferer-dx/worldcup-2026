@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="page" content="scorers">
+<title>2026 世界杯 · 射手榜</title>
+<link rel="stylesheet" href="css/style.css">
+<style>
+  .scorer-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    transition: background .15s;
+  }
+  .scorer-row:hover { background: #fdfaf5; }
+  [data-theme="dark"] .scorer-row:hover { background: #2a2a42; }
+  .scorer-rank {
+    font-size: 16px;
+    font-weight: 700;
+    min-width: 32px;
+    text-align: center;
+    color: var(--text-muted);
+  }
+  .scorer-rank.gold { color: #f0b90b; font-size: 20px; }
+  .scorer-rank.silver { color: #9ca3af; font-size: 18px; }
+  .scorer-rank.bronze { color: #d97706; font-size: 18px; }
+  .scorer-flag { font-size: 28px; line-height: 1; }
+  .scorer-info { flex: 1; }
+  .scorer-name { font-weight: 600; font-size: 14px; }
+  .scorer-team { font-size: 12px; color: var(--text-secondary); }
+  .scorer-goals {
+    font-size: 22px;
+    font-weight: 800;
+    min-width: 40px;
+    text-align: center;
+    color: var(--accent);
+  }
+  .scorer-detail {
+    font-size: 11px;
+    color: var(--text-muted);
+    min-width: 100px;
+    text-align: right;
+  }
+  .leader-highlight { background: #fffdf5; }
+  [data-theme="dark"] .leader-highlight { background: #2a281a; }
+
+  .group-section { margin-bottom: 32px; }
+  .scorers-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  @media (max-width: 768px) { .scorers-grid { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div class="app-layout">
+
+<nav class="sidebar" id="sidebar"></nav>
+
+<main class="main-content">
+  <div class="page-header">
+    <h1>射手榜</h1>
+    <p>金靴奖实时追踪 · 进球/助攻/出场时间</p>
+  </div>
+
+  <div class="stats-grid" id="statsBar"></div>
+
+  <div class="scorers-grid">
+    <div>
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-header"><span class="card-title">👑 射手榜 TOP 20</span></div>
+        <div id="scorerList"><p style="color:var(--text-muted);font-size:13px;padding:20px;text-align:center">暂无进球数据</p></div>
+      </div>
+    </div>
+    <div>
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-header"><span class="card-title">🏆 球队进球分布</span></div>
+        <div id="teamGoals"><p style="color:var(--text-muted);font-size:13px;padding:20px;text-align:center">暂无数据</p></div>
+      </div>
+      <div class="card">
+        <div class="card-header"><span class="card-title">⚡ 帽子戏法/梅开二度</span></div>
+        <div id="specialAchievements"><p style="color:var(--text-muted);font-size:13px;padding:20px;text-align:center">暂无</p></div>
+      </div>
+    </div>
+  </div>
+</main>
+
+</div>
+
+<script src="js/data.js"></script>
+<script src="js/squads.js"></script>
+<script src="js/shared.js"></script>
+<script>
+(function() {
+  const finished = getFinishedMatches();
+
+  // Stats
+  const totalGoals = finished.reduce((s,m) => s + (m.score?.h||0) + (m.score?.a||0), 0);
+  const totalMatches = finished.length;
+  const uniqueScorers = new Set();
+
+  // Collect ALL goals from finished matches
+  const allScorers = {}; // player name → {goals, team, matches}
+  const teamGoalCount = {}; // team code → goals
+
+  finished.forEach(m => {
+    if (!m.events) return;
+    m.events.filter(e => e.t === 'goal').forEach(e => {
+      const teamCode = e.team === 'MEX' ? m.home : e.team === 'RSA' ? m.away :
+                       e.team === 'KOR' ? m.home : e.team === 'CZE' ? m.away :
+                       e.team; // fallback
+
+      // Try to determine which team the player belongs to
+      const playerTeam = m.events.find(ev => ev.p === e.p)?.team || '';
+      const actualTeam = playerTeam === 'MEX' ? m.home : playerTeam === 'RSA' ? m.away :
+                         playerTeam === 'KOR' ? m.home : playerTeam === 'CZE' ? m.away :
+                         playerTeam || '';
+
+      const tCode = actualTeam || m.home; // fallback to home
+
+      if (!allScorers[e.p]) {
+        allScorers[e.p] = { name: e.p, goals: 0, team: tCode, matches: [] };
+      }
+      allScorers[e.p].goals++;
+      if (!allScorers[e.p].matches.includes(m.id)) allScorers[e.p].matches.push(m.id);
+      uniqueScorers.add(e.p);
+
+      // Team goal count
+      if (!teamGoalCount[tCode]) teamGoalCount[tCode] = 0;
+      teamGoalCount[tCode]++;
+    });
+  });
+
+  document.getElementById('statsBar').innerHTML = `
+    <div class="stat-card"><div class="stat-value">${totalGoals}</div><div class="stat-label">总进球数</div></div>
+    <div class="stat-card"><div class="stat-value">${uniqueScorers.size}</div><div class="stat-label">进球人数</div></div>
+    <div class="stat-card"><div class="stat-value">${totalMatches}</div><div class="stat-label">完赛场次</div></div>
+    <div class="stat-card"><div class="stat-value">${totalMatches > 0 ? (totalGoals/totalMatches).toFixed(1) : '—'}</div><div class="stat-label">场均进球</div></div>
+  `;
+
+  // Top scorers list
+  const sorted = Object.values(allScorers).sort((a,b) => b.goals - a.goals || a.name.localeCompare(b.name));
+  const top20 = sorted.slice(0, 20);
+
+  if (top20.length > 0) {
+    document.getElementById('scorerList').innerHTML = top20.map((p, i) => {
+      const team = TEAMS[p.team];
+      const rankClass = i === 0 ? 'gold' : i === 1 ? 'silver' : i === 2 ? 'bronze' : '';
+      const highlightClass = i < 3 ? ' leader-highlight' : '';
+      const rankIcon = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : (i+1);
+      return `<div class="scorer-row${highlightClass}">
+        <div class="scorer-rank ${rankClass}">${rankIcon}</div>
+        <div class="scorer-flag" onclick="showTeamModal('${p.team}')" title="查看${team?.name||''}阵容" style="cursor:pointer">${team?.flag||'🏳'}</div>
+        <div class="scorer-info">
+          <div class="scorer-name">${p.name}</div>
+          <div class="scorer-team">${team?.name||p.team} · ${p.matches.length}场</div>
+        </div>
+        <div class="scorer-goals">${p.goals}</div>
+        <div class="scorer-detail">${p.matches.map(id => {
+          const m = getMatch(id);
+          return m ? `${m.score.h}-${m.score.a}` : '';
+        }).filter(Boolean).join(' / ')}</div>
+      </div>`;
+    }).join('');
+  }
+
+  // Team goals distribution
+  const teamGoalsSorted = Object.entries(teamGoalCount).sort((a,b) => b[1] - a[1]);
+  if (teamGoalsSorted.length > 0) {
+    const maxGoals = teamGoalsSorted[0][1];
+    document.getElementById('teamGoals').innerHTML = teamGoalsSorted.map(([code, goals]) => {
+      const team = TEAMS[code];
+      const pct = Math.round(goals / maxGoals * 100);
+      return `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px">
+        <span style="font-size:18px">${team?.flag||'🏳'}</span>
+        <span style="flex:1;font-weight:500">${team?.name||code}</span>
+        <span style="font-weight:700;margin-right:8px">${goals}球</span>
+        <div class="prob-bar" style="width:80px"><div class="prob-fill win" style="width:${pct}%"></div></div>
+      </div>`;
+    }).join('');
+  }
+
+  // Hat-tricks / braces
+  const multiGoal = sorted.filter(p => p.goals >= 2);
+  if (multiGoal.length > 0) {
+    document.getElementById('specialAchievements').innerHTML = multiGoal.map(p => {
+      const label = p.goals >= 3 ? '🎩 帽子戏法' : '⚽ 梅开二度';
+      const team = TEAMS[p.team];
+      return `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px">
+        <span>${label}</span>
+        <span style="font-weight:600">${p.name}</span>
+        <span>${team?.flag||''} ${team?.name||p.team}</span>
+        <span style="font-weight:700;margin-left:auto">${p.goals}球</span>
+      </div>`;
+    }).join('');
+  } else if (totalGoals > 0) {
+    document.getElementById('specialAchievements').innerHTML = '<p style="color:var(--text-muted);font-size:13px;text-align:center;padding:12px">尚无球员单场进球≥2</p>';
+  }
+})();
+</script>
+</body>
+</html>
