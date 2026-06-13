@@ -38,6 +38,30 @@
   .path-node.bad { background: var(--red-light); color: var(--red); }
   .path-node.neutral { background: #f3f4f6; color: var(--text-secondary); }
   .path-arrow { color: var(--text-muted); font-size: 16px; }
+
+  /* Five-dimension bars */
+  .dim-row { display: flex; align-items: center; gap: 8px; margin: 6px 0; font-size: 12px; }
+  .dim-label { min-width: 60px; font-weight: 500; color: var(--text-secondary); }
+  .dim-bars { flex: 1; display: flex; flex-direction: column; gap: 2px; }
+  .dim-bar-wrap { display: flex; align-items: center; gap: 6px; }
+  .dim-bar { height: 8px; border-radius: 4px; transition: width .6s ease; }
+  .dim-bar.home { background: var(--accent); }
+  .dim-bar.away { background: var(--accent-warm); }
+  .dim-val { font-size: 10px; min-width: 24px; font-weight: 600; }
+  .dim-val.home { color: var(--accent); }
+  .dim-val.away { color: var(--accent-warm); }
+  .dim-weight { font-size: 9px; color: var(--text-muted); min-width: 28px; }
+
+  /* Confidence ring */
+  .conf-ring {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 48px; height: 48px;
+    border-radius: 50%;
+    border: 3px solid var(--border);
+    font-size: 14px; font-weight: 700;
+  }
 </style>
 </head>
 <body>
@@ -52,8 +76,8 @@
 </div>
 
 <script src="js/data.js"></script>
-
 <script src="js/squads.js"></script>
+<script src="js/ratings.js"></script>
 <script src="js/shared.js"></script>
 <script>
 (function() {
@@ -153,11 +177,55 @@
       </div>
       <div class="analysis-box ${exactScore ? 'correct' : correctResult ? 'correct' : 'wrong'}">
         <strong>${exactScore ? '🎯 比分完全命中' : correctResult ? '✅ 胜负方向正确' : '❌ 预测偏差'}</strong><br>
-        ${exactScore ? `预测 ${pred.h}-${pred.a} 与实际比分完全一致。预测逻辑: ${pred.analysis}` :
+        ${m.post_match || (exactScore ? `预测 ${pred.h}-${pred.a} 与实际比分完全一致。预测逻辑: ${pred.analysis}` :
           correctResult ? `预测胜负方向正确,但比分有偏差。预测 ${pred.h}-${pred.a},实际 ${m.score.h}-${m.score.a}。分析: ${pred.analysis}` :
-          `预测方向出现偏差。原预测: ${pred.analysis}。实际结果与预测不符,可能原因: 球队临场状态、战术调整、红牌/伤病等因素影响了比赛走势。`}
+          `预测方向出现偏差。原预测: ${pred.analysis}。实际结果与预测不符,可能原因: 球队临场状态、战术调整、红牌/伤病等因素影响了比赛走势。`)}
       </div>
     </div>`;
+
+    // --- Post-Mortem (only for finished matches) ---
+    const pm = generatePostMortem(m);
+    if (pm) {
+      html += `<div class="card" style="margin-bottom:20px">
+        <div class="card-header">
+          <span class="card-title">赛后复盘 · 五步诊断</span>
+          <span style="font-size:11px;color:var(--text-muted)">AI 自动分析</span>
+        </div>
+        <div class="analysis-box" style="margin-top:0;font-weight:500;font-size:14px">
+          📌 ${pm.summary}
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px">
+          <div style="padding:12px;background:#fdfaf5;border-radius:8px;font-size:12px;line-height:1.7">
+            <strong>1. 数据错误</strong><br>
+            <span style="color:var(--text-secondary)">${pm.dataErrors[0]}</span>
+          </div>
+          <div style="padding:12px;background:#fdfaf5;border-radius:8px;font-size:12px;line-height:1.7">
+            <strong>2. 权重失衡</strong><br>
+            <span style="color:var(--text-secondary)">${pm.weightIssues[0]}</span>
+          </div>
+          <div style="padding:12px;background:#fdfaf5;border-radius:8px;font-size:12px;line-height:1.7">
+            <strong>3. 未纳入因素</strong><br>
+            <span style="color:var(--text-secondary)">${pm.missingFactors[0]}</span>
+          </div>
+          <div style="padding:12px;background:#fdfaf5;border-radius:8px;font-size:12px;line-height:1.7">
+            <strong>4. 偶然性判断</strong><br>
+            <span style="color:var(--text-secondary)">${pm.luckAnalysis}</span>
+          </div>
+        </div>
+        <div style="margin-top:12px;padding:14px 16px;background:#fef3ed;border-radius:8px;border-left:3px solid var(--accent-warm)">
+          <strong style="font-size:13px">5. 可执行改进动作</strong>
+          <div style="font-size:12px;color:var(--text-secondary);margin-top:4px;line-height:1.7">
+            ${pm.fixes.map((f,i) => `${i+1}. ${f}`).join('<br>')}
+          </div>
+        </div>
+        ${pm.dimensionAnalysis ? `
+        <div style="margin-top:12px;font-size:11px;color:var(--text-muted);display:flex;gap:16px;flex-wrap:wrap">
+          ${pm.dimensionAnalysis.map(d => `
+            <span>${d.label}: <strong style="color:${d.homeAdvantage>0?'var(--accent)':'var(--accent-warm)'}">${d.homeAdvantage>0?'+':''}${d.homeAdvantage}</strong> (${d.weight}%)</span>
+          `).join('')}
+        </div>` : ''}
+      </div>`;
+    }
   }
 
   // --- Prediction + Probabilities (upcoming) ---
@@ -202,6 +270,41 @@
       </div>
     </div>`;
   }
+
+  // --- Five-Dimension Analysis ---
+  const ratings = calcMatchRatings(m);
+  const radar = getRadarData(ratings);
+
+  html += `<div class="card" style="margin-bottom:20px">
+    <div class="card-header">
+      <span class="card-title">五维分析模型</span>
+      <span style="font-size:11px;color:var(--text-muted)">综合置信度: <strong style="color:var(--accent)">${ratings.composite.confidence}%</strong></span>
+    </div>
+    <div style="display:flex;gap:24px;align-items:flex-start;flex-wrap:wrap">
+      <div style="flex-shrink:0">
+        <canvas id="radarCanvas" width="260" height="260"></canvas>
+        <div style="text-align:center;font-size:10px;color:var(--text-muted);margin-top:4px">${home.flag} ${home.name} vs ${away.flag} ${away.name}</div>
+      </div>
+      <div style="flex:1;min-width:250px">
+        ${renderDimensionBars(ratings, home, away)}
+      </div>
+    </div>
+    <div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--border);display:flex;align-items:center;gap:16px;font-size:13px;flex-wrap:wrap">
+      <div style="display:flex;align-items:center;gap:6px">
+        <span style="width:12px;height:12px;border-radius:50%;background:var(--accent)"></span>
+        <span>${home.name}</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:6px">
+        <span style="width:12px;height:12px;border-radius:50%;background:var(--accent-warm)"></span>
+        <span>${away.name}</span>
+      </div>
+      <span style="margin-left:auto;font-size:11px;color:var(--text-muted)">
+        综合得分: ${home.name} <strong>${ratings.composite.homeTotal}</strong> — ${away.name} <strong>${ratings.composite.awayTotal}</strong>
+      </span>
+    </div>
+  </div>
+
+`;
 
   // --- Knockout Path Analysis ---
   html += `<div class="card" style="margin-bottom:20px">
@@ -263,7 +366,111 @@
       <p style="margin-top:8px;font-size:12px;color:var(--text-muted)">48队制下,12个小组前2名(24队) + 8个最佳小组第3名 = 32强进入淘汰赛。小组排名直接影响淘汰赛首轮对手的强弱。</p>
     `;
   }
+  // Draw radar chart
+  setTimeout(function() {
+    var c = document.getElementById('radarCanvas');
+    if (c && radar && typeof drawRadarChart === 'function') {
+      drawRadarChart(c, radar.home, radar.away, radar.labels);
+    }
+  }, 150);
 })();
+
+function drawRadarChart(canvas, homeData, awayData, labels) {
+  var ctx = canvas.getContext('2d');
+  var w = canvas.width, h = canvas.height;
+  var cx = w / 2, cy = h / 2;
+  var n = labels.length;
+  var radius = 90;
+  var angleStep = (Math.PI * 2) / n;
+
+  ctx.clearRect(0, 0, w, h);
+
+  for (var g = 1; g <= 4; g++) {
+    var r = radius * g / 4;
+    ctx.beginPath();
+    for (var i = 0; i <= n; i++) {
+      var a = angleStep * i - Math.PI / 2;
+      var x = cx + r * Math.cos(a), y = cy + r * Math.sin(a);
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+    ctx.strokeStyle = '#e5e7eb';
+    ctx.lineWidth = 0.5;
+    ctx.stroke();
+  }
+
+  for (var i = 0; i < n; i++) {
+    var a = angleStep * i - Math.PI / 2;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.lineTo(cx + radius * Math.cos(a), cy + radius * Math.sin(a));
+    ctx.strokeStyle = '#e5e7eb';
+    ctx.lineWidth = 0.5;
+    ctx.stroke();
+  }
+
+  ctx.fillStyle = '#6b7280';
+  ctx.font = '10px -apple-system, sans-serif';
+  ctx.textAlign = 'center';
+  for (var i = 0; i < n; i++) {
+    var a = angleStep * i - Math.PI / 2;
+    ctx.fillText(labels[i], cx + (radius + 16) * Math.cos(a), cy + (radius + 16) * Math.sin(a) + 4);
+  }
+
+  function drawPoly(data, colorStr, alpha) {
+    ctx.beginPath();
+    for (var i = 0; i < n; i++) {
+      var a = angleStep * i - Math.PI / 2;
+      var r = radius * data[i] / 100;
+      var x = cx + r * Math.cos(a), y = cy + r * Math.sin(a);
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = colorStr;
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = colorStr;
+    ctx.stroke();
+
+    for (var i = 0; i < n; i++) {
+      var a = angleStep * i - Math.PI / 2;
+      var r = radius * data[i] / 100;
+      ctx.beginPath();
+      ctx.arc(cx + r * Math.cos(a), cy + r * Math.sin(a), 3, 0, Math.PI * 2);
+      ctx.fillStyle = colorStr;
+      ctx.fill();
+    }
+  }
+
+  drawPoly(awayData, '#e8794b', 0.2);
+  drawPoly(homeData, '#2563eb', 0.25);
+}
+
+function renderDimensionBars(ratings, home, away) {
+  var dims = ratings.dimensions;
+  var names = ['strength', 'tactical', 'form', 'tournament', 'model'];
+  var labels = { strength: '球队实力', tactical: '战术风格', form: '近期状态', tournament: '赛会因素', model: '数据模型' };
+
+  return names.map(function(key) {
+    var d = dims[key];
+    return '<div class="dim-row">' +
+      '<span class="dim-label">' + labels[key] + '</span>' +
+      '<span class="dim-weight">' + d.weight + '%</span>' +
+      '<div class="dim-bars">' +
+        '<div class="dim-bar-wrap">' +
+          '<div class="dim-bar home" style="width:' + d.home + '%"></div>' +
+          '<span class="dim-val home">' + d.home + '</span>' +
+        '</div>' +
+        '<div class="dim-bar-wrap">' +
+          '<div class="dim-bar away" style="width:' + d.away + '%"></div>' +
+          '<span class="dim-val away">' + d.away + '</span>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+  }).join('');
+}
 </script>
 </body>
 </html>

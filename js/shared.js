@@ -20,7 +20,7 @@ function renderSidebar() {
   nav.innerHTML = `
     <div class="sidebar-brand">
       <h2>WC 2026</h2>
-      <span>FIFA World Cup · AI Predictions</span>
+      <span>FIFA World Cup · AI Predictions · 北京时间</span>
     </div>
     <div class="sidebar-nav">
       ${items.map(i => `
@@ -75,7 +75,7 @@ function matchRowHTML(m, showPrediction = true) {
 
   return `
     <div class="match-row" style="cursor:default">
-      <div class="time-col">${m.time}</div>
+      <div class="time-col">${m.time}<span style="font-size:9px;color:var(--text-muted)"> BJT</span></div>
       <div class="teams-col" style="flex:1">
         <div class="team-line"><span class="team-flag-sm" onclick="event.stopPropagation();showTeamModal('${m.home}')" title="查看${home.name}阵容" style="cursor:pointer">${home.flag}</span><span class="name ${!isFinished&&!isLive&&pred&&pred.h<pred.a?'dim':''}" onclick="event.stopPropagation();showTeamModal('${m.home}')" title="查看${home.name}阵容" style="cursor:pointer;border-bottom:1px dashed transparent;transition:border-color .15s" onmouseenter="this.style.borderBottomColor='var(--accent)'" onmouseleave="this.style.borderBottomColor='transparent'">${home.name}</span></div>
         <div class="team-line"><span class="team-flag-sm" onclick="event.stopPropagation();showTeamModal('${m.away}')" title="查看${away.name}阵容" style="cursor:pointer">${away.flag}</span><span class="name ${!isFinished&&!isLive&&pred&&pred.a<pred.h?'dim':''}" onclick="event.stopPropagation();showTeamModal('${m.away}')" title="查看${away.name}阵容" style="cursor:pointer;border-bottom:1px dashed transparent;transition:border-color .15s" onmouseenter="this.style.borderBottomColor='var(--accent)'" onmouseleave="this.style.borderBottomColor='transparent'">${away.name}</span></div>
@@ -209,7 +209,18 @@ function showTeamModal(code) {
         <button class="team-modal-close" onclick="this.closest('.team-modal-overlay').remove()">✕</button>
       </div>
       <div class="team-modal-body">
-        <div class="tm-formation">阵型: <strong>${squad.formation}</strong> · 阵容人数: <strong>${squad.players.length}</strong></div>
+        <div class="tm-formation">
+          阵型: <strong>${squad.formation}</strong> · 人数: <strong>${squad.players.length}</strong> ·
+          ELO: <strong>${team.elo}</strong> · 世界排名 <strong>#${team.rank}</strong>
+        </div>
+        ${typeof calcStrengthScore !== 'undefined' ? (() => {
+          const ss = calcStrengthScore(code);
+          return `<div style="display:flex;gap:16px;margin-bottom:12px;padding:10px 12px;background:#fdfaf5;border-radius:8px;font-size:12px">
+            <div>实力分 <strong style="color:var(--accent)">${ss.total}</strong>/100</div>
+            <div style="color:var(--text-muted)">排名 ${ss.rankScore} · 身价 ${ss.valueScore} · 年龄 ${ss.ageScore}</div>
+          </div>`;
+        })() : ''}
+        <div style="font-size:11px;color:var(--text-muted);margin-bottom:10px">ELO 评分反映球队综合战力,2000+为顶级,1500-为下游。当前 ${team.elo} 分处于${team.elo>=1850?'顶级':team.elo>=1700?'中上游':team.elo>=1550?'中游':'下游'}水平。</div>
         <table class="tm-roster">
           <thead><tr><th>#</th><th>球员</th><th>位置</th><th>进球</th></tr></thead>
           <tbody>${playersHTML}</tbody>

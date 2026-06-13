@@ -2,3 +2,5 @@ scripts/
 __pycache__/
 *.pyc
 .DS_Store
+desktop.ini
+folder.ico
